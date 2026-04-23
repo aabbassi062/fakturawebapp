@@ -1339,6 +1339,7 @@ nav {
         <input type="file" id="importBackupFile" accept=".json" style="display:none" onchange="importBackup(event)"/>
         <button class="nav-link" onclick="toggleAdminMode()" id="adminToggle" style="color:var(--accent3)">🔐 Admin</button>
       </div>
+      <button class="nav-link" onclick="refreshData()" style="margin-right:12px;color:var(--accent2);background:rgba(79,255,176,0.1);border:1px solid rgba(79,255,176,0.3)" title="Daten von Supabase neu laden">🔄 Aktualisieren</button>
       <button class="nav-badge blink-badge" onclick="showPage('kundenverwaltung')" style="cursor:pointer;border:none;background:var(--surface-raised);transition:all .15s">
         <div class="dot"></div>
         <span id="customerCountBadge">443 Kunden</span>
@@ -2058,6 +2059,37 @@ function switchYear(yr) {
 
 window.switchYear = switchYear;
 
+// Manual refresh function
+async function refreshData() {
+  console.log('🔄 Manual refresh triggered...');
+  
+  // Visual feedback
+  const btn = event?.target;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Lädt...';
+  }
+  
+  showToast('🔄 Lade Daten von Supabase...', 'info');
+  
+  await loadDataFromSupabase();
+  
+  // Refresh all views
+  if (typeof renderAllYears === 'function') renderAllYears();
+  if (typeof renderErfassenTable === 'function') renderErfassenTable();
+  if (typeof renderCustomerList === 'function') renderCustomerList();
+  
+  showToast('✅ Daten aktualisiert!', 'success');
+  
+  // Reset button
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '🔄 Aktualisieren';
+  }
+}
+
+window.refreshData = refreshData;
+
 // ============================================================================
 // SUPABASE DATA LAYER - REPLACES OLD LOCALSTORAGE
 // ============================================================================
@@ -2081,7 +2113,12 @@ async function loadDataFromSupabase() {
     
     console.log('📊 Months response:', months);
     
-    sharedMonthData = months || [];
+    // Ensure monatLabel exists for all months
+    sharedMonthData = (months || []).map(m => ({
+      ...m,
+      monatLabel: m.monatLabel || `${MONTHS[m.month]} ${m.year}`
+    }));
+    
     console.log('✅ Loaded', sharedMonthData.length, 'months');
     
     // Load customers
@@ -2199,8 +2236,21 @@ function byYear(yr) {
 
 // Real-time subscriptions (disabled for direct fetch approach)
 function setupRealtimeSync() {
-  console.log('⏭️ Real-time sync skipped (using direct fetch)');
-  // Can be added later if needed
+  console.log('🔄 Setting up auto-refresh (every 30 seconds)...');
+  
+  // Auto-refresh data every 30 seconds
+  setInterval(async () => {
+    console.log('🔄 Auto-refreshing data...');
+    const oldCount = sharedMonthData.length;
+    await loadDataFromSupabase();
+    
+    // Only refresh UI if data changed
+    if (sharedMonthData.length !== oldCount) {
+      if (typeof renderAllYears === 'function') renderAllYears();
+      if (typeof renderErfassenTable === 'function') renderErfassenTable();
+      showToast('🔄 Neue Daten geladen!', 'info');
+    }
+  }, 30000); // 30 seconds
 }
 
 // Export functions
