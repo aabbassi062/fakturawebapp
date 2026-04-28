@@ -2129,8 +2129,8 @@ async function importExcelPrices(event) {
       else if (day >= 16 && day <= 29) woche = 3;
       else woche = 4;
       
-      // Find customer
-      const customer = customers.find(c => 
+      // Find customer in global sharedCustomers array
+      const customer = sharedCustomers.find(c => 
         c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
       );
       
@@ -2211,7 +2211,7 @@ async function importExcelPrices(event) {
       }
       
       // Refresh
-      await loadCustomers();
+      await loadDataFromSupabase();
       if (typeof renderTop10Charts === 'function') renderTop10Charts();
       if (typeof filterKunden === 'function') filterKunden();
       
