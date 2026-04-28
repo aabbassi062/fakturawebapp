@@ -2066,18 +2066,17 @@ window.switchYear = switchYear;
 
 
 
+
 // ============================================================================
-// EXCEL/CSV IMPORT - SCHREIBT DIREKT IN CUSTOMER_PRICES TABELLE
+// EXCEL/CSV IMPORT - UPDATE EXISTING ENTRIES
 // ============================================================================
 
 async function importExcelPrices(event) {
   const file = event.target.files[0];
   if (!file) return;
   
-  // Check if data is loaded
   if (!sharedCustomers || sharedCustomers.length === 0) {
-    showToast('⚠️ Kundendaten werden geladen... Bitte warten und nochmal versuchen.', 'warning');
-    console.error('sharedCustomers not loaded yet');
+    showToast('⚠️ Kundendaten werden geladen... Bitte warten.', 'warning');
     return;
   }
   
@@ -2090,12 +2089,12 @@ async function importExcelPrices(event) {
     let imported = 0;
     let notFound = [];
     let errors = [];
-    const priceUpdates = new Map(); // key: "customer_nr-year-month", value: {w1,w2,w3,w4,w5}
+    const priceUpdates = new Map();
     
     console.log(`📊 Verarbeite ${lines.length} Zeilen...`);
     console.log(`👥 Verfügbare Kunden: ${sharedCustomers.length}`);
     
-    // Skip first 4 rows (header)
+    // Parse all lines
     for (let i = 4; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
@@ -2153,7 +2152,7 @@ async function importExcelPrices(event) {
       // Create update key
       const updateKey = `${customer.nr}-${year}-${month}`;
       
-      // Get or create price entry for this customer/year/month
+      // Get or create price entry
       if (!priceUpdates.has(updateKey)) {
         priceUpdates.set(updateKey, {
           customer_nr: customer.nr,
@@ -2175,40 +2174,73 @@ async function importExcelPrices(event) {
     
     console.log(`✅ ${imported} Preise gefunden für ${priceUpdates.size} Einträge`);
     
-    // Save to Supabase customer_prices table
+    // Save to Supabase
     if (priceUpdates.size > 0) {
       showToast(`💾 Speichere ${priceUpdates.size} Preis-Einträge...`, 'info');
       
       let saved = 0;
       for (const priceEntry of priceUpdates.values()) {
         try {
-          // Use UPSERT (insert or update)
-          const response = await fetch(`${SUPABASE_URL}/rest/v1/customer_prices`, {
-            method: 'POST',
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Authorization': `Bearer ${SUPABASE_KEY}`,
-              'Content-Type': 'application/json',
-              'Prefer': 'resolution=merge-duplicates,return=minimal'
-            },
-            body: JSON.stringify(priceEntry)
-          });
+          // Try UPDATE first
+          const updateResponse = await fetch(
+            `${SUPABASE_URL}/rest/v1/customer_prices?customer_nr=eq.${priceEntry.customer_nr}&year=eq.${priceEntry.year}&month=eq.${priceEntry.month}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=minimal'
+              },
+              body: JSON.stringify({
+                w1: priceEntry.w1,
+                w2: priceEntry.w2,
+                w3: priceEntry.w3,
+                w4: priceEntry.w4,
+                w5: priceEntry.w5
+              })
+            }
+          );
           
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Error saving price for customer ${priceEntry.customer_nr}:`, response.status, errorText);
-            errors.push(`Kunde ${priceEntry.customer_nr}: ${response.status}`);
-          } else {
+          if (updateResponse.ok) {
             saved++;
+          } else if (updateResponse.status === 404 || updateResponse.status === 406) {
+            // Entry doesn't exist, INSERT it
+            const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/customer_prices`, {
+              method: 'POST',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=minimal'
+              },
+              body: JSON.stringify(priceEntry)
+            });
+            
+            if (insertResponse.ok) {
+              saved++;
+            } else {
+              const errorText = await insertResponse.text();
+              console.error(`Insert failed for ${priceEntry.customer_nr}:`, insertResponse.status, errorText);
+              errors.push(`Kunde ${priceEntry.customer_nr}: ${insertResponse.status}`);
+            }
+          } else {
+            const errorText = await updateResponse.text();
+            console.error(`Update failed for ${priceEntry.customer_nr}:`, updateResponse.status, errorText);
+            errors.push(`Kunde ${priceEntry.customer_nr}: ${updateResponse.status}`);
           }
+          
         } catch (e) {
-          console.error(`Error saving price:`, e);
+          console.error(`Error saving:`, e);
           errors.push(`${priceEntry.customer_nr}: ${e.message}`);
         }
       }
       
       console.log(`✅ ${saved} Einträge gespeichert`);
-      showToast(`✅ ${imported} Preise für ${saved} Monate importiert!`, 'success');
+      
+      if (saved > 0) {
+        showToast(`✅ ${imported} Preise für ${saved} Monate importiert!`, 'success');
+      }
       
       // Show warnings
       if (notFound.length > 0) {
@@ -2218,7 +2250,8 @@ async function importExcelPrices(event) {
       
       if (errors.length > 0) {
         console.error('Speicherfehler:', errors);
-        alert(`⚠️ ${errors.length} Fehler beim Speichern:\n\n${errors.slice(0, 10).join('\n')}`);
+        const msg = `⚠️ ${errors.length} Fehler beim Speichern.\n\nErste 10 Fehler:\n${errors.slice(0, 10).join('\n')}`;
+        alert(msg);
       }
       
       // Refresh
@@ -2239,6 +2272,7 @@ async function importExcelPrices(event) {
 }
 
 window.importExcelPrices = importExcelPrices;
+
 
 
 
