@@ -2070,151 +2070,181 @@ function switchYear(yr) {
 
 window.switchYear = switchYear;
 
+
 // ============================================================================
-// EXCEL/CSV IMPORT FÜR KUNDEN-PREISE
+// EXCEL/CSV IMPORT - ALLE KUNDEN AUF EINMAL
 // ============================================================================
 
 async function importExcelPrices(event) {
   const file = event.target.files[0];
   if (!file) return;
   
-  showToast('📤 Importiere Excel...', 'info');
+  showToast('📤 Importiere Excel... Bitte warten...', 'info');
   
-  const text = await file.text();
-  const lines = text.split('\n');
-  
-  let imported = 0;
-  let notFound = [];
-  let errors = [];
-  
-  // Skip first 4 rows (header)
-  for (let i = 4; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+  try {
+    const text = await file.text();
+    const lines = text.split('\n');
     
-    // Split by semicolon (CSV format)
-    const cols = line.split(';');
-    if (cols.length < 12) continue;
+    let imported = 0;
+    let notFound = [];
+    let errors = [];
+    let updatedCustomers = new Map(); // Track which customers to update
     
-    const datumStr = cols[3].trim();
-    const betragStr = cols[7].trim();
-    const kundeStr = cols[11].trim();
-    
-    // Skip if no customer name
-    if (!kundeStr) continue;
-    
-    // Skip MwSt rows
-    if (kundeStr === 'MwSt') continue;
-    
-    // Skip if no date or amount
-    if (!datumStr || !betragStr) continue;
-    
-    // Parse date (DD.MM.YYYY)
-    let datum, day, month, year;
-    try {
-      const parts = datumStr.split('.');
-      day = parseInt(parts[0]);
-      month = parseInt(parts[1]);
-      year = parseInt(parts[2]);
+    // Skip first 4 rows (header)
+    for (let i = 4; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
       
-      if (isNaN(day) || isNaN(month) || isNaN(year)) continue;
-    } catch (e) {
-      errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
-      continue;
-    }
-    
-    // Parse amount (replace comma with dot)
-    let betrag;
-    try {
-      betrag = parseFloat(betragStr.replace(',', '.'));
-      if (isNaN(betrag)) continue;
-    } catch (e) {
-      errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
-      continue;
-    }
-    
-    // Determine week based on day
-    let woche;
-    if (day >= 1 && day <= 14) {
-      woche = 1; // Wöchentlich (1. Faktura)
-    } else if (day === 15) {
-      woche = 2; // 14-tägig
-    } else if (day >= 16 && day <= 29) {
-      woche = 3; // Wöchentlich (2. Faktura)
-    } else {
-      woche = 4; // Monatlich (30, 31)
-    }
-    
-    // Find customer in database by name
-    const customer = customers.find(c => 
-      c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
-    );
-    
-    if (!customer) {
-      notFound.push(kundeStr);
-      continue;
-    }
-    
-    // Update customer price for this month/week
-    const yearStr = year.toString();
-    const monthKey = `w${woche}`;
-    
-    // Find or create year entry
-    let yearEntry = customer.prices.find(p => p.year === yearStr);
-    if (!yearEntry) {
-      yearEntry = {
-        year: yearStr,
-        months: {}
-      };
-      customer.prices.push(yearEntry);
-    }
-    
-    // Find or create month entry
-    if (!yearEntry.months[month]) {
-      yearEntry.months[month] = { w1: '', w2: '', w3: '', w4: '', w5: '' };
-    }
-    
-    // Set the price
-    yearEntry.months[month][monthKey] = betrag.toFixed(2);
-    imported++;
-  }
-  
-  // Save to Supabase
-  if (imported > 0) {
-    try {
-      // Update all modified customers
-      for (const customer of customers) {
-        await supabaseFetch('customers', {
-          method: 'PATCH',
-          body: {
-            prices: customer.prices
-          },
-          query: `nr=eq.${customer.nr}`
-        });
+      // Split by semicolon (CSV format)
+      const cols = line.split(';');
+      if (cols.length < 12) continue;
+      
+      const datumStr = cols[3].trim();
+      const betragStr = cols[7].trim();
+      const kundeStr = cols[11].trim();
+      
+      // Skip if no customer name
+      if (!kundeStr) continue;
+      
+      // Skip MwSt rows
+      if (kundeStr === 'MwSt') continue;
+      
+      // Skip if no date or amount
+      if (!datumStr || !betragStr) continue;
+      
+      // Parse date (DD.MM.YYYY)
+      let day, month, year;
+      try {
+        const parts = datumStr.split('.');
+        day = parseInt(parts[0]);
+        month = parseInt(parts[1]);
+        year = parseInt(parts[2]);
+        
+        if (isNaN(day) || isNaN(month) || isNaN(year)) {
+          errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
+          continue;
+        }
+      } catch (e) {
+        errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
+        continue;
       }
       
-      showToast(`✅ ${imported} Preise importiert!`, 'success');
+      // Parse amount (replace comma with dot)
+      let betrag;
+      try {
+        betrag = parseFloat(betragStr.replace(',', '.'));
+        if (isNaN(betrag)) {
+          errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
+          continue;
+        }
+      } catch (e) {
+        errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
+        continue;
+      }
       
-      // Show warnings if any
+      // Determine week based on day
+      let woche;
+      if (day >= 1 && day <= 14) {
+        woche = 1; // Wöchentlich (1. Faktura)
+      } else if (day === 15) {
+        woche = 2; // 14-tägig
+      } else if (day >= 16 && day <= 29) {
+        woche = 3; // Wöchentlich (2. Faktura)
+      } else {
+        woche = 4; // Monatlich (30, 31)
+      }
+      
+      // Find customer in database by name (case-insensitive)
+      const customer = customers.find(c => 
+        c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
+      );
+      
+      if (!customer) {
+        // Add to not found list (only once per customer)
+        if (!notFound.includes(kundeStr)) {
+          notFound.push(kundeStr);
+        }
+        continue;
+      }
+      
+      // Track this customer for update
+      if (!updatedCustomers.has(customer.nr)) {
+        updatedCustomers.set(customer.nr, customer);
+      }
+      
+      // Update customer price for this month/week
+      const yearStr = year.toString();
+      const monthKey = `w${woche}`;
+      
+      // Find or create year entry
+      let yearEntry = customer.prices.find(p => p.year === yearStr);
+      if (!yearEntry) {
+        yearEntry = {
+          year: yearStr,
+          months: {}
+        };
+        customer.prices.push(yearEntry);
+      }
+      
+      // Find or create month entry
+      if (!yearEntry.months[month]) {
+        yearEntry.months[month] = { w1: '', w2: '', w3: '', w4: '', w5: '' };
+      }
+      
+      // Set the price
+      yearEntry.months[month][monthKey] = betrag.toFixed(2);
+      imported++;
+    }
+    
+    // Save ALL updated customers to Supabase
+    if (updatedCustomers.size > 0) {
+      showToast(`💾 Speichere ${updatedCustomers.size} Kunden...`, 'info');
+      
+      let saved = 0;
+      for (const customer of updatedCustomers.values()) {
+        try {
+          await supabaseFetch('customers', {
+            method: 'PATCH',
+            body: {
+              prices: customer.prices
+            },
+            query: `nr=eq.${customer.nr}`
+          });
+          saved++;
+        } catch (e) {
+          console.error(`Error updating customer ${customer.nr}:`, e);
+          errors.push(`Fehler bei Kunde ${customer.name}`);
+        }
+      }
+      
+      showToast(`✅ ${imported} Preise für ${saved} Kunden importiert!`, 'success');
+      
+      // Show warnings if any customers not found
       if (notFound.length > 0) {
         const uniqueNotFound = [...new Set(notFound)];
-        alert(`⚠️ ${uniqueNotFound.length} Kunden nicht gefunden:\n\n${uniqueNotFound.slice(0, 10).join('\n')}${uniqueNotFound.length > 10 ? '\n...' : ''}`);
+        const msg = `⚠️ ${uniqueNotFound.length} Kunden nicht in Datenbank gefunden:\n\n${uniqueNotFound.slice(0, 15).join('\n')}${uniqueNotFound.length > 15 ? '\n\n...und ' + (uniqueNotFound.length - 15) + ' weitere' : ''}\n\nDiese Kunden wurden NICHT importiert.`;
+        alert(msg);
       }
       
-      if (errors.length > 0) {
+      // Show errors if any
+      if (errors.length > 0 && errors.length <= 10) {
         console.warn('Import Fehler:', errors);
       }
       
       // Refresh data
       await loadCustomers();
-      renderTop10Charts();
+      if (currentPage === 'kunden') {
+        renderTop10Charts();
+        filterKunden();
+      }
       
-    } catch (e) {
-      console.error('Import error:', e);
-      showToast('❌ Fehler beim Speichern!', 'error');
+    } else {
+      showToast('⚠️ Keine Kunden gefunden zum Importieren', 'warning');
     }
-  } else {
-    showToast('⚠️ Keine Daten importiert', 'warning');
+    
+  } catch (e) {
+    console.error('Import error:', e);
+    showToast('❌ Import fehlgeschlagen: ' + e.message, 'error');
   }
   
   // Reset file input
@@ -2222,6 +2252,7 @@ async function importExcelPrices(event) {
 }
 
 window.importExcelPrices = importExcelPrices;
+
 
 
 
