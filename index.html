@@ -1334,6 +1334,7 @@ nav {
         <button class="nav-link active" onclick="showPage('dashboard')" id="nav-dashboard">📊 Dashboard</button>
         <button class="nav-link" onclick="showPage('erfassen')" id="nav-erfassen">✏️ Monatsdaten</button>
         <button class="nav-link" onclick="showPage('kunden')" id="nav-kunden">💰 Kunden</button>
+        <button class="nav-link admin-only" onclick="showPage('checklist')" id="nav-checklist" style="color:var(--accent2)">📋 Checkliste</button>
         <button class="nav-link admin-only" onclick="exportBackup()" style="color:var(--accent4)" title="Alle Daten als Backup herunterladen">💾 Backup</button>
         <button class="nav-link admin-only" onclick="document.getElementById('importBackupFile').click()" style="color:var(--accent)" title="Backup wiederherstellen">⬆️ Import</button>
         <input type="file" id="importBackupFile" accept=".json" style="display:none" onchange="importBackup(event)"/>
@@ -1630,9 +1631,17 @@ nav {
   <!-- KUNDEN PAGE -->
   <div id="page-kunden" class="page">
     <div class="app">
-      <div style="margin-bottom:48px" class="fade-up">
-        <h1 style="font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-1.5px;line-height:1">Kunden<span style="color:var(--accent)">preise</span></h1>
-        <p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:8px">Monatliche Preiserfassung · Top 10 Jahresübersicht</p>
+      <div style="margin-bottom:48px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px" class="fade-up">
+        <div>
+          <h1 style="font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-1.5px;line-height:1">Kunden<span style="color:var(--accent)">preise</span></h1>
+          <p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:8px">Monatliche Preiserfassung · Top 10 Jahresübersicht</p>
+        </div>
+        <div class="admin-only">
+          <button onclick="document.getElementById('excelImportFile').click()" class="btn-primary" style="white-space:nowrap" title="Excel/CSV mit Kundenpreisen importieren">
+            📤 Excel Import
+          </button>
+          <input type="file" id="excelImportFile" accept=".csv,.xlsx" style="display:none" onchange="importExcelPrices(event)"/>
+        </div>
       </div>
 
       <div class="section-label fade-up">Top 10 Kunden · Jahresübersicht</div>
@@ -2041,6 +2050,8 @@ function showPage(pageId) {
   } else if (pageId === 'kundenverwaltung') {
     renderCustomerList();
     toggleStatusDate();
+  } else if (pageId === 'checklist') {
+    renderChecklist();
   }
 }
 
@@ -2058,6 +2069,161 @@ function switchYear(yr) {
 }
 
 window.switchYear = switchYear;
+
+// ============================================================================
+// EXCEL/CSV IMPORT FÜR KUNDEN-PREISE
+// ============================================================================
+
+async function importExcelPrices(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  showToast('📤 Importiere Excel...', 'info');
+  
+  const text = await file.text();
+  const lines = text.split('\n');
+  
+  let imported = 0;
+  let notFound = [];
+  let errors = [];
+  
+  // Skip first 4 rows (header)
+  for (let i = 4; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Split by semicolon (CSV format)
+    const cols = line.split(';');
+    if (cols.length < 12) continue;
+    
+    const datumStr = cols[3].trim();
+    const betragStr = cols[7].trim();
+    const kundeStr = cols[11].trim();
+    
+    // Skip if no customer name
+    if (!kundeStr) continue;
+    
+    // Skip MwSt rows
+    if (kundeStr === 'MwSt') continue;
+    
+    // Skip if no date or amount
+    if (!datumStr || !betragStr) continue;
+    
+    // Parse date (DD.MM.YYYY)
+    let datum, day, month, year;
+    try {
+      const parts = datumStr.split('.');
+      day = parseInt(parts[0]);
+      month = parseInt(parts[1]);
+      year = parseInt(parts[2]);
+      
+      if (isNaN(day) || isNaN(month) || isNaN(year)) continue;
+    } catch (e) {
+      errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
+      continue;
+    }
+    
+    // Parse amount (replace comma with dot)
+    let betrag;
+    try {
+      betrag = parseFloat(betragStr.replace(',', '.'));
+      if (isNaN(betrag)) continue;
+    } catch (e) {
+      errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
+      continue;
+    }
+    
+    // Determine week based on day
+    let woche;
+    if (day >= 1 && day <= 14) {
+      woche = 1; // Wöchentlich (1. Faktura)
+    } else if (day === 15) {
+      woche = 2; // 14-tägig
+    } else if (day >= 16 && day <= 29) {
+      woche = 3; // Wöchentlich (2. Faktura)
+    } else {
+      woche = 4; // Monatlich (30, 31)
+    }
+    
+    // Find customer in database by name
+    const customer = customers.find(c => 
+      c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
+    );
+    
+    if (!customer) {
+      notFound.push(kundeStr);
+      continue;
+    }
+    
+    // Update customer price for this month/week
+    const yearStr = year.toString();
+    const monthKey = `w${woche}`;
+    
+    // Find or create year entry
+    let yearEntry = customer.prices.find(p => p.year === yearStr);
+    if (!yearEntry) {
+      yearEntry = {
+        year: yearStr,
+        months: {}
+      };
+      customer.prices.push(yearEntry);
+    }
+    
+    // Find or create month entry
+    if (!yearEntry.months[month]) {
+      yearEntry.months[month] = { w1: '', w2: '', w3: '', w4: '', w5: '' };
+    }
+    
+    // Set the price
+    yearEntry.months[month][monthKey] = betrag.toFixed(2);
+    imported++;
+  }
+  
+  // Save to Supabase
+  if (imported > 0) {
+    try {
+      // Update all modified customers
+      for (const customer of customers) {
+        await supabaseFetch('customers', {
+          method: 'PATCH',
+          body: {
+            prices: customer.prices
+          },
+          query: `nr=eq.${customer.nr}`
+        });
+      }
+      
+      showToast(`✅ ${imported} Preise importiert!`, 'success');
+      
+      // Show warnings if any
+      if (notFound.length > 0) {
+        const uniqueNotFound = [...new Set(notFound)];
+        alert(`⚠️ ${uniqueNotFound.length} Kunden nicht gefunden:\n\n${uniqueNotFound.slice(0, 10).join('\n')}${uniqueNotFound.length > 10 ? '\n...' : ''}`);
+      }
+      
+      if (errors.length > 0) {
+        console.warn('Import Fehler:', errors);
+      }
+      
+      // Refresh data
+      await loadCustomers();
+      renderTop10Charts();
+      
+    } catch (e) {
+      console.error('Import error:', e);
+      showToast('❌ Fehler beim Speichern!', 'error');
+    }
+  } else {
+    showToast('⚠️ Keine Daten importiert', 'warning');
+  }
+  
+  // Reset file input
+  event.target.value = '';
+}
+
+window.importExcelPrices = importExcelPrices;
+
+
 
 // Manual refresh function
 async function refreshData() {
