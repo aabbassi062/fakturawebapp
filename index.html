@@ -1631,17 +1631,9 @@ nav {
   <!-- KUNDEN PAGE -->
   <div id="page-kunden" class="page">
     <div class="app">
-      <div style="margin-bottom:48px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px" class="fade-up">
-        <div>
-          <h1 style="font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-1.5px;line-height:1">Kunden<span style="color:var(--accent)">preise</span></h1>
-          <p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:8px">Monatliche Preiserfassung · Top 10 Jahresübersicht</p>
-        </div>
-        <div class="admin-only">
-          <button onclick="document.getElementById('excelImportFile').click()" class="btn-primary" style="white-space:nowrap" title="Excel/CSV mit Kundenpreisen importieren">
-            📤 Excel Import
-          </button>
-          <input type="file" id="excelImportFile" accept=".csv,.xlsx" style="display:none" onchange="importExcelPrices(event)"/>
-        </div>
+      <div style="margin-bottom:48px" class="fade-up">
+        <h1 style="font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-1.5px;line-height:1">Kunden<span style="color:var(--accent)">preise</span></h1>
+        <p style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);margin-top:8px">Monatliche Preiserfassung · Top 10 Jahresübersicht</p>
       </div>
 
       <div class="section-label fade-up">Top 10 Kunden · Jahresübersicht</div>
@@ -1733,9 +1725,10 @@ nav {
           <option value="7">Juli</option><option value="8">August</option><option value="9">September</option>
           <option value="10">Oktober</option><option value="11">November</option><option value="12">Dezember</option>
         </select>
-        <button class="btn btn-primary" onclick="openImportDialog()" style="font-size:13px;padding:9px 18px;background:var(--accent2);border-color:var(--accent2)" title="Excel-Daten importieren">
-          📥 Import
+        <button class="btn btn-primary" onclick="document.getElementById('excelImportFile').click()" style="font-size:13px;padding:9px 18px;background:var(--accent2);border-color:var(--accent2)" title="Excel/CSV mit Kundenpreisen importieren">
+          📥 Excel Import
         </button>
+        <input type="file" id="excelImportFile" accept=".csv,.xlsx" style="display:none" onchange="importExcelPrices(event)"/>
         <button class="btn btn-danger" onclick="resetMonthPrices()" style="font-size:13px;padding:9px 18px" title="Alle Preise für aktuellen Monat löschen">
           🗑 Monat zurücksetzen
         </button>
@@ -2071,8 +2064,9 @@ function switchYear(yr) {
 window.switchYear = switchYear;
 
 
+
 // ============================================================================
-// EXCEL/CSV IMPORT - ALLE KUNDEN AUF EINMAL
+// EXCEL/CSV IMPORT - ALLE KUNDEN AUF EINMAL (FIXED)
 // ============================================================================
 
 async function importExcelPrices(event) {
@@ -2088,14 +2082,15 @@ async function importExcelPrices(event) {
     let imported = 0;
     let notFound = [];
     let errors = [];
-    let updatedCustomers = new Map(); // Track which customers to update
+    let updatedCustomers = new Map();
+    
+    console.log(`📊 Verarbeite ${lines.length} Zeilen...`);
     
     // Skip first 4 rows (header)
     for (let i = 4; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
       
-      // Split by semicolon (CSV format)
       const cols = line.split(';');
       if (cols.length < 12) continue;
       
@@ -2103,143 +2098,125 @@ async function importExcelPrices(event) {
       const betragStr = cols[7].trim();
       const kundeStr = cols[11].trim();
       
-      // Skip if no customer name
-      if (!kundeStr) continue;
-      
-      // Skip MwSt rows
-      if (kundeStr === 'MwSt') continue;
-      
-      // Skip if no date or amount
+      if (!kundeStr || kundeStr === 'MwSt') continue;
       if (!datumStr || !betragStr) continue;
       
-      // Parse date (DD.MM.YYYY)
+      // Parse date
       let day, month, year;
       try {
         const parts = datumStr.split('.');
         day = parseInt(parts[0]);
         month = parseInt(parts[1]);
         year = parseInt(parts[2]);
-        
-        if (isNaN(day) || isNaN(month) || isNaN(year)) {
-          errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
-          continue;
-        }
+        if (isNaN(day) || isNaN(month) || isNaN(year)) continue;
       } catch (e) {
-        errors.push(`Zeile ${i+1}: Ungültiges Datum ${datumStr}`);
         continue;
       }
       
-      // Parse amount (replace comma with dot)
+      // Parse amount
       let betrag;
       try {
         betrag = parseFloat(betragStr.replace(',', '.'));
-        if (isNaN(betrag)) {
-          errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
-          continue;
-        }
+        if (isNaN(betrag)) continue;
       } catch (e) {
-        errors.push(`Zeile ${i+1}: Ungültiger Betrag ${betragStr}`);
         continue;
       }
       
-      // Determine week based on day
+      // Determine week
       let woche;
-      if (day >= 1 && day <= 14) {
-        woche = 1; // Wöchentlich (1. Faktura)
-      } else if (day === 15) {
-        woche = 2; // 14-tägig
-      } else if (day >= 16 && day <= 29) {
-        woche = 3; // Wöchentlich (2. Faktura)
-      } else {
-        woche = 4; // Monatlich (30, 31)
-      }
+      if (day >= 1 && day <= 14) woche = 1;
+      else if (day === 15) woche = 2;
+      else if (day >= 16 && day <= 29) woche = 3;
+      else woche = 4;
       
-      // Find customer in database by name (case-insensitive)
+      // Find customer
       const customer = customers.find(c => 
         c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
       );
       
       if (!customer) {
-        // Add to not found list (only once per customer)
         if (!notFound.includes(kundeStr)) {
           notFound.push(kundeStr);
         }
         continue;
       }
       
-      // Track this customer for update
-      if (!updatedCustomers.has(customer.nr)) {
-        updatedCustomers.set(customer.nr, customer);
-      }
+      updatedCustomers.set(customer.nr, customer);
       
-      // Update customer price for this month/week
+      // Update price
       const yearStr = year.toString();
       const monthKey = `w${woche}`;
       
-      // Find or create year entry
       let yearEntry = customer.prices.find(p => p.year === yearStr);
       if (!yearEntry) {
-        yearEntry = {
-          year: yearStr,
-          months: {}
-        };
+        yearEntry = { year: yearStr, months: {} };
         customer.prices.push(yearEntry);
       }
       
-      // Find or create month entry
       if (!yearEntry.months[month]) {
         yearEntry.months[month] = { w1: '', w2: '', w3: '', w4: '', w5: '' };
       }
       
-      // Set the price
       yearEntry.months[month][monthKey] = betrag.toFixed(2);
       imported++;
     }
     
-    // Save ALL updated customers to Supabase
+    console.log(`✅ ${imported} Preise gefunden für ${updatedCustomers.size} Kunden`);
+    
+    // Save to Supabase
     if (updatedCustomers.size > 0) {
       showToast(`💾 Speichere ${updatedCustomers.size} Kunden...`, 'info');
       
       let saved = 0;
       for (const customer of updatedCustomers.values()) {
         try {
-          await supabaseFetch('customers', {
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/customers?nr=eq.${customer.nr}`, {
             method: 'PATCH',
-            body: {
-              prices: customer.prices
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
             },
-            query: `nr=eq.${customer.nr}`
+            body: JSON.stringify({
+              prices: customer.prices
+            })
           });
-          saved++;
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Error updating ${customer.name}:`, response.status, errorText);
+            errors.push(`${customer.name}: ${response.status}`);
+          } else {
+            saved++;
+          }
         } catch (e) {
-          console.error(`Error updating customer ${customer.nr}:`, e);
-          errors.push(`Fehler bei Kunde ${customer.name}`);
+          console.error(`Error updating ${customer.nr}:`, e);
+          errors.push(`${customer.name}: ${e.message}`);
         }
       }
       
+      console.log(`✅ ${saved} Kunden gespeichert`);
       showToast(`✅ ${imported} Preise für ${saved} Kunden importiert!`, 'success');
       
-      // Show warnings if any customers not found
+      // Show warnings
       if (notFound.length > 0) {
-        const uniqueNotFound = [...new Set(notFound)];
-        const msg = `⚠️ ${uniqueNotFound.length} Kunden nicht in Datenbank gefunden:\n\n${uniqueNotFound.slice(0, 15).join('\n')}${uniqueNotFound.length > 15 ? '\n\n...und ' + (uniqueNotFound.length - 15) + ' weitere' : ''}\n\nDiese Kunden wurden NICHT importiert.`;
+        const msg = `⚠️ ${notFound.length} Kunden nicht gefunden:\n\n${notFound.slice(0, 15).join('\n')}${notFound.length > 15 ? '\n\n...und ' + (notFound.length - 15) + ' weitere' : ''}`;
         alert(msg);
       }
       
-      // Show errors if any
-      if (errors.length > 0 && errors.length <= 10) {
-        console.warn('Import Fehler:', errors);
+      if (errors.length > 0) {
+        console.error('Speicherfehler:', errors);
+        alert(`⚠️ ${errors.length} Fehler beim Speichern:\n\n${errors.slice(0, 10).join('\n')}`);
       }
       
-      // Refresh data
+      // Refresh
       await loadCustomers();
-      if (currentPage === 'kunden') {
-        renderTop10Charts();
-        filterKunden();
-      }
+      if (typeof renderTop10Charts === 'function') renderTop10Charts();
+      if (typeof filterKunden === 'function') filterKunden();
       
     } else {
-      showToast('⚠️ Keine Kunden gefunden zum Importieren', 'warning');
+      showToast('⚠️ Keine Kunden gefunden', 'warning');
     }
     
   } catch (e) {
@@ -2247,11 +2224,11 @@ async function importExcelPrices(event) {
     showToast('❌ Import fehlgeschlagen: ' + e.message, 'error');
   }
   
-  // Reset file input
   event.target.value = '';
 }
 
 window.importExcelPrices = importExcelPrices;
+
 
 
 
