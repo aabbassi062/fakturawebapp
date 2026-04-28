@@ -2065,13 +2065,21 @@ window.switchYear = switchYear;
 
 
 
+
 // ============================================================================
-// EXCEL/CSV IMPORT - ALLE KUNDEN AUF EINMAL (FIXED)
+// EXCEL/CSV IMPORT - SCHREIBT DIREKT IN CUSTOMER_PRICES TABELLE
 // ============================================================================
 
 async function importExcelPrices(event) {
   const file = event.target.files[0];
   if (!file) return;
+  
+  // Check if data is loaded
+  if (!sharedCustomers || sharedCustomers.length === 0) {
+    showToast('⚠️ Kundendaten werden geladen... Bitte warten und nochmal versuchen.', 'warning');
+    console.error('sharedCustomers not loaded yet');
+    return;
+  }
   
   showToast('📤 Importiere Excel... Bitte warten...', 'info');
   
@@ -2082,9 +2090,10 @@ async function importExcelPrices(event) {
     let imported = 0;
     let notFound = [];
     let errors = [];
-    let updatedCustomers = new Map();
+    const priceUpdates = new Map(); // key: "customer_nr-year-month", value: {w1,w2,w3,w4,w5}
     
     console.log(`📊 Verarbeite ${lines.length} Zeilen...`);
+    console.log(`👥 Verfügbare Kunden: ${sharedCustomers.length}`);
     
     // Skip first 4 rows (header)
     for (let i = 4; i < lines.length; i++) {
@@ -2129,9 +2138,9 @@ async function importExcelPrices(event) {
       else if (day >= 16 && day <= 29) woche = 3;
       else woche = 4;
       
-      // Find customer in global sharedCustomers array
+      // Find customer
       const customer = sharedCustomers.find(c => 
-        c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
+        c.name && c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
       );
       
       if (!customer) {
@@ -2141,63 +2150,65 @@ async function importExcelPrices(event) {
         continue;
       }
       
-      updatedCustomers.set(customer.nr, customer);
+      // Create update key
+      const updateKey = `${customer.nr}-${year}-${month}`;
       
-      // Update price
-      const yearStr = year.toString();
-      const monthKey = `w${woche}`;
-      
-      let yearEntry = customer.prices.find(p => p.year === yearStr);
-      if (!yearEntry) {
-        yearEntry = { year: yearStr, months: {} };
-        customer.prices.push(yearEntry);
+      // Get or create price entry for this customer/year/month
+      if (!priceUpdates.has(updateKey)) {
+        priceUpdates.set(updateKey, {
+          customer_nr: customer.nr,
+          year: year,
+          month: month,
+          w1: '',
+          w2: '',
+          w3: '',
+          w4: '',
+          w5: ''
+        });
       }
       
-      if (!yearEntry.months[month]) {
-        yearEntry.months[month] = { w1: '', w2: '', w3: '', w4: '', w5: '' };
-      }
-      
-      yearEntry.months[month][monthKey] = betrag.toFixed(2);
+      // Set the week price
+      const priceEntry = priceUpdates.get(updateKey);
+      priceEntry[`w${woche}`] = betrag.toFixed(2);
       imported++;
     }
     
-    console.log(`✅ ${imported} Preise gefunden für ${updatedCustomers.size} Kunden`);
+    console.log(`✅ ${imported} Preise gefunden für ${priceUpdates.size} Einträge`);
     
-    // Save to Supabase
-    if (updatedCustomers.size > 0) {
-      showToast(`💾 Speichere ${updatedCustomers.size} Kunden...`, 'info');
+    // Save to Supabase customer_prices table
+    if (priceUpdates.size > 0) {
+      showToast(`💾 Speichere ${priceUpdates.size} Preis-Einträge...`, 'info');
       
       let saved = 0;
-      for (const customer of updatedCustomers.values()) {
+      for (const priceEntry of priceUpdates.values()) {
         try {
-          const response = await fetch(`${SUPABASE_URL}/rest/v1/customers?nr=eq.${customer.nr}`, {
-            method: 'PATCH',
+          // Use UPSERT (insert or update)
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/customer_prices`, {
+            method: 'POST',
             headers: {
               'apikey': SUPABASE_KEY,
               'Authorization': `Bearer ${SUPABASE_KEY}`,
               'Content-Type': 'application/json',
-              'Prefer': 'return=minimal'
+              'Prefer': 'resolution=merge-duplicates,return=minimal'
             },
-            body: JSON.stringify({
-              prices: customer.prices
-            })
+            body: JSON.stringify(priceEntry)
           });
           
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(`Error updating ${customer.name}:`, response.status, errorText);
-            errors.push(`${customer.name}: ${response.status}`);
+            console.error(`Error saving price for customer ${priceEntry.customer_nr}:`, response.status, errorText);
+            errors.push(`Kunde ${priceEntry.customer_nr}: ${response.status}`);
           } else {
             saved++;
           }
         } catch (e) {
-          console.error(`Error updating ${customer.nr}:`, e);
-          errors.push(`${customer.name}: ${e.message}`);
+          console.error(`Error saving price:`, e);
+          errors.push(`${priceEntry.customer_nr}: ${e.message}`);
         }
       }
       
-      console.log(`✅ ${saved} Kunden gespeichert`);
-      showToast(`✅ ${imported} Preise für ${saved} Kunden importiert!`, 'success');
+      console.log(`✅ ${saved} Einträge gespeichert`);
+      showToast(`✅ ${imported} Preise für ${saved} Monate importiert!`, 'success');
       
       // Show warnings
       if (notFound.length > 0) {
@@ -2228,6 +2239,7 @@ async function importExcelPrices(event) {
 }
 
 window.importExcelPrices = importExcelPrices;
+
 
 
 
