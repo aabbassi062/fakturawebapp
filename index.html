@@ -2163,11 +2163,11 @@ async function importExcelPrices(event) {
         customer_nr: entry.customer_nr,
         year: entry.year,
         month: entry.month,
-        w1: entry.w1 > 0 ? entry.w1.toFixed(2) : '',
-        w2: entry.w2 > 0 ? entry.w2.toFixed(2) : '',
-        w3: entry.w3 > 0 ? entry.w3.toFixed(2) : '',
-        w4: entry.w4 > 0 ? entry.w4.toFixed(2) : '',
-        w5: entry.w5 > 0 ? entry.w5.toFixed(2) : ''
+        w1: entry.w1 > 0 ? parseFloat(entry.w1.toFixed(2)) : null,
+        w2: entry.w2 > 0 ? parseFloat(entry.w2.toFixed(2)) : null,
+        w3: entry.w3 > 0 ? parseFloat(entry.w3.toFixed(2)) : null,
+        w4: entry.w4 > 0 ? parseFloat(entry.w4.toFixed(2)) : null,
+        w5: entry.w5 > 0 ? parseFloat(entry.w5.toFixed(2)) : null
       });
     }
     
