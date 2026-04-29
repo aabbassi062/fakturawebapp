@@ -2067,8 +2067,9 @@ window.switchYear = switchYear;
 
 
 
+
 // ============================================================================
-// EXCEL/CSV IMPORT - UPDATE EXISTING ENTRIES
+// EXCEL/CSV IMPORT - NEUES EINFACHES FORMAT
 // ============================================================================
 
 async function importExcelPrices(event) {
@@ -2086,37 +2087,32 @@ async function importExcelPrices(event) {
     const text = await file.text();
     const lines = text.split('\n');
     
-    let imported = 0;
-    let notFound = [];
-    let errors = [];
-    const priceUpdates = new Map();
+    // Group prices by customer-year-month-week
+    const pricesByCustomer = new Map();
     
     console.log(`📊 Verarbeite ${lines.length} Zeilen...`);
-    console.log(`👥 Verfügbare Kunden: ${sharedCustomers.length}`);
     
-    // Parse all lines
+    // Skip first 4 rows (header at row 4)
     for (let i = 4; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
       
       const cols = line.split(';');
-      if (cols.length < 12) continue;
+      if (cols.length < 6) continue;
       
-      const datumStr = cols[3].trim();
-      const betragStr = cols[7].trim();
-      const kundeStr = cols[11].trim();
+      const kundeNr = cols[1].trim();
+      const datumStr = cols[4].trim();
+      const betragStr = cols[5].trim();
       
-      if (!kundeStr || kundeStr === 'MwSt') continue;
-      if (!datumStr || !betragStr) continue;
+      if (!kundeNr || !datumStr || !betragStr) continue;
       
-      // Parse date
-      let day, month, year;
+      // Parse date YYYYMMDD
+      let year, month, day;
       try {
-        const parts = datumStr.split('.');
-        day = parseInt(parts[0]);
-        month = parseInt(parts[1]);
-        year = parseInt(parts[2]);
-        if (isNaN(day) || isNaN(month) || isNaN(year)) continue;
+        year = parseInt(datumStr.substring(0, 4));
+        month = parseInt(datumStr.substring(4, 6));
+        day = parseInt(datumStr.substring(6, 8));
+        if (isNaN(year) || isNaN(month) || isNaN(day)) continue;
       } catch (e) {
         continue;
       }
@@ -2137,131 +2133,118 @@ async function importExcelPrices(event) {
       else if (day >= 16 && day <= 29) woche = 3;
       else woche = 4;
       
-      // Find customer
-      const customer = sharedCustomers.find(c => 
-        c.name && c.name.toLowerCase().trim() === kundeStr.toLowerCase().trim()
-      );
+      // Create key
+      const key = `${kundeNr}-${year}-${month}`;
       
-      if (!customer) {
-        if (!notFound.includes(kundeStr)) {
-          notFound.push(kundeStr);
-        }
-        continue;
-      }
-      
-      // Create update key
-      const updateKey = `${customer.nr}-${year}-${month}`;
-      
-      // Get or create price entry
-      if (!priceUpdates.has(updateKey)) {
-        priceUpdates.set(updateKey, {
-          customer_nr: customer.nr,
+      if (!pricesByCustomer.has(key)) {
+        pricesByCustomer.set(key, {
+          customer_nr: kundeNr,
           year: year,
           month: month,
-          w1: '',
-          w2: '',
-          w3: '',
-          w4: '',
-          w5: ''
+          w1: 0,
+          w2: 0,
+          w3: 0,
+          w4: 0,
+          w5: 0
         });
       }
       
-      // Set the week price
-      const priceEntry = priceUpdates.get(updateKey);
-      priceEntry[`w${woche}`] = betrag.toFixed(2);
-      imported++;
+      // Add amount (summing if multiple entries)
+      const entry = pricesByCustomer.get(key);
+      entry[`w${woche}`] += betrag;
     }
     
-    console.log(`✅ ${imported} Preise gefunden für ${priceUpdates.size} Einträge`);
+    console.log(`✅ ${pricesByCustomer.size} Einträge gefunden`);
+    
+    if (pricesByCustomer.size === 0) {
+      showToast('⚠️ Keine Daten gefunden', 'warning');
+      return;
+    }
+    
+    // Convert amounts to strings with 2 decimals
+    for (const entry of pricesByCustomer.values()) {
+      entry.w1 = entry.w1 > 0 ? entry.w1.toFixed(2) : '';
+      entry.w2 = entry.w2 > 0 ? entry.w2.toFixed(2) : '';
+      entry.w3 = entry.w3 > 0 ? entry.w3.toFixed(2) : '';
+      entry.w4 = entry.w4 > 0 ? entry.w4.toFixed(2) : '';
+      entry.w5 = entry.w5 > 0 ? entry.w5.toFixed(2) : '';
+    }
     
     // Save to Supabase
-    if (priceUpdates.size > 0) {
-      showToast(`💾 Speichere ${priceUpdates.size} Preis-Einträge...`, 'info');
-      
-      let saved = 0;
-      for (const priceEntry of priceUpdates.values()) {
-        try {
-          // Try UPDATE first
-          const updateResponse = await fetch(
-            `${SUPABASE_URL}/rest/v1/customer_prices?customer_nr=eq.${priceEntry.customer_nr}&year=eq.${priceEntry.year}&month=eq.${priceEntry.month}`,
-            {
-              method: 'PATCH',
-              headers: {
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json',
-                'Prefer': 'return=minimal'
-              },
-              body: JSON.stringify({
-                w1: priceEntry.w1,
-                w2: priceEntry.w2,
-                w3: priceEntry.w3,
-                w4: priceEntry.w4,
-                w5: priceEntry.w5
-              })
-            }
-          );
+    showToast(`💾 Speichere ${pricesByCustomer.size} Einträge...`, 'info');
+    
+    let saved = 0;
+    let errors = [];
+    
+    for (const entry of pricesByCustomer.values()) {
+      try {
+        // Try UPDATE first
+        const updateUrl = `${SUPABASE_URL}/rest/v1/customer_prices?customer_nr=eq.${entry.customer_nr}&year=eq.${entry.year}&month=eq.${entry.month}`;
+        const updateResponse = await fetch(updateUrl, {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({
+            w1: entry.w1,
+            w2: entry.w2,
+            w3: entry.w3,
+            w4: entry.w4,
+            w5: entry.w5
+          })
+        });
+        
+        if (updateResponse.ok) {
+          saved++;
+        } else if (updateResponse.status === 404 || updateResponse.status === 406) {
+          // Not found, INSERT
+          const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/customer_prices`, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify(entry)
+          });
           
-          if (updateResponse.ok) {
+          if (insertResponse.ok) {
             saved++;
-          } else if (updateResponse.status === 404 || updateResponse.status === 406) {
-            // Entry doesn't exist, INSERT it
-            const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/customer_prices`, {
-              method: 'POST',
-              headers: {
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json',
-                'Prefer': 'return=minimal'
-              },
-              body: JSON.stringify(priceEntry)
-            });
-            
-            if (insertResponse.ok) {
-              saved++;
-            } else {
-              const errorText = await insertResponse.text();
-              console.error(`Insert failed for ${priceEntry.customer_nr}:`, insertResponse.status, errorText);
-              errors.push(`Kunde ${priceEntry.customer_nr}: ${insertResponse.status}`);
-            }
           } else {
-            const errorText = await updateResponse.text();
-            console.error(`Update failed for ${priceEntry.customer_nr}:`, updateResponse.status, errorText);
-            errors.push(`Kunde ${priceEntry.customer_nr}: ${updateResponse.status}`);
+            const errorText = await insertResponse.text();
+            console.error(`Insert failed for ${entry.customer_nr}:`, insertResponse.status, errorText);
+            errors.push(`${entry.customer_nr} (${entry.year}/${entry.month}): ${insertResponse.status}`);
           }
-          
-        } catch (e) {
-          console.error(`Error saving:`, e);
-          errors.push(`${priceEntry.customer_nr}: ${e.message}`);
+        } else {
+          const errorText = await updateResponse.text();
+          console.error(`Update failed for ${entry.customer_nr}:`, updateResponse.status, errorText);
+          errors.push(`${entry.customer_nr} (${entry.year}/${entry.month}): ${updateResponse.status}`);
         }
+      } catch (e) {
+        console.error('Save error:', e);
+        errors.push(`${entry.customer_nr}: ${e.message}`);
       }
-      
-      console.log(`✅ ${saved} Einträge gespeichert`);
-      
-      if (saved > 0) {
-        showToast(`✅ ${imported} Preise für ${saved} Monate importiert!`, 'success');
-      }
-      
-      // Show warnings
-      if (notFound.length > 0) {
-        const msg = `⚠️ ${notFound.length} Kunden nicht gefunden:\n\n${notFound.slice(0, 15).join('\n')}${notFound.length > 15 ? '\n\n...und ' + (notFound.length - 15) + ' weitere' : ''}`;
-        alert(msg);
-      }
-      
-      if (errors.length > 0) {
-        console.error('Speicherfehler:', errors);
-        const msg = `⚠️ ${errors.length} Fehler beim Speichern.\n\nErste 10 Fehler:\n${errors.slice(0, 10).join('\n')}`;
-        alert(msg);
-      }
-      
-      // Refresh
-      await loadDataFromSupabase();
-      if (typeof renderTop10Charts === 'function') renderTop10Charts();
-      if (typeof filterKunden === 'function') filterKunden();
-      
-    } else {
-      showToast('⚠️ Keine Kunden gefunden', 'warning');
     }
+    
+    console.log(`✅ ${saved} Einträge gespeichert`);
+    
+    if (saved > 0) {
+      showToast(`✅ ${saved} Einträge erfolgreich importiert!`, 'success');
+    }
+    
+    if (errors.length > 0) {
+      console.error('Fehler:', errors);
+      alert(`⚠️ ${errors.length} Fehler beim Speichern:\n\n${errors.slice(0, 10).join('\n')}`);
+    }
+    
+    // Refresh
+    await loadDataFromSupabase();
+    if (typeof renderTop10Charts === 'function') renderTop10Charts();
+    if (typeof filterKunden === 'function') filterKunden();
     
   } catch (e) {
     console.error('Import error:', e);
@@ -2272,6 +2255,7 @@ async function importExcelPrices(event) {
 }
 
 window.importExcelPrices = importExcelPrices;
+
 
 
 
