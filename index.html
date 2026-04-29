@@ -7545,7 +7545,14 @@ function renderKundenPrices() {
     
     let inputs = '';
     for (let i = 0; i < numInputs; i++) {
-      const key = `w${i + 1}`;
+      // For 14-täglich (period=2): use w2 and w4 instead of w1 and w2
+      let key;
+      if (c.period === 2) {
+        key = i === 0 ? 'w2' : 'w4';  // 1. Hälfte = w2 (15.), 2. Hälfte = w4 (Ende)
+      } else {
+        key = `w${i + 1}`;  // Wöchentlich/Monatlich: w1, w2, w3, w4
+      }
+      
       const prices = window.custPrices || custPrices || {};
       const saved = (prices[c.nr] && prices[c.nr][displayYear] && prices[c.nr][displayYear][displayMonth] && prices[c.nr][displayYear][displayMonth][key]) || '';
       
