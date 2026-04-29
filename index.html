@@ -2243,8 +2243,15 @@ async function importExcelPrices(event) {
     
     // Refresh
     await loadDataFromSupabase();
+    
+    // Update custPrices reference
+    custPrices = window.custPrices || {};
+    console.log('📊 custPrices aktualisiert:', Object.keys(custPrices).length, 'Kunden');
+    
+    // Force re-render
     if (typeof renderTop10Charts === 'function') renderTop10Charts();
     if (typeof filterKunden === 'function') filterKunden();
+    if (typeof renderKundenPrices === 'function') renderKundenPrices();
     
   } catch (e) {
     console.error('Import error:', e);
