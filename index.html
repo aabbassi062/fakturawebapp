@@ -7502,6 +7502,11 @@ function renderKundenPrices() {
   const grid = document.getElementById('kundenPriceGrid');
   if (!grid) return;
   
+  console.log('🎨 renderKundenPrices called');
+  console.log('   window.custPrices:', Object.keys(window.custPrices || {}).length, 'Kunden');
+  console.log('   filteredCustomers:', filteredCustomers.length);
+  console.log('   displayYear:', displayYear, 'displayMonth:', displayMonth);
+  
   grid.innerHTML = '';
   
   filteredCustomers.forEach(c => {
@@ -7526,7 +7531,8 @@ function renderKundenPrices() {
     let inputs = '';
     for (let i = 0; i < numInputs; i++) {
       const key = `w${i + 1}`;
-      const saved = (custPrices[c.nr] && custPrices[c.nr][displayYear] && custPrices[c.nr][displayYear][displayMonth] && custPrices[c.nr][displayYear][displayMonth][key]) || '';
+      const prices = window.custPrices || custPrices || {};
+      const saved = (prices[c.nr] && prices[c.nr][displayYear] && prices[c.nr][displayYear][displayMonth] && prices[c.nr][displayYear][displayMonth][key]) || '';
       
       let label = 'Wert';
       if (c.period === 1) label = 'Woche ' + (i + 1);
