@@ -7545,12 +7545,17 @@ function renderKundenPrices() {
     
     let inputs = '';
     for (let i = 0; i < numInputs; i++) {
-      // For 14-täglich (period=2): use w2 and w4 instead of w1 and w2
+      // Determine correct week key based on period
       let key;
-      if (c.period === 2) {
-        key = i === 0 ? 'w2' : 'w4';  // 1. Hälfte = w2 (15.), 2. Hälfte = w4 (Ende)
+      if (c.period === 1) {
+        // Wöchentlich: w1, w2, w3, w4
+        key = `w${i + 1}`;
+      } else if (c.period === 2) {
+        // 14-täglich: 1. Hälfte = w2 (15.), 2. Hälfte = w4 (Ende)
+        key = i === 0 ? 'w2' : 'w4';
       } else {
-        key = `w${i + 1}`;  // Wöchentlich/Monatlich: w1, w2, w3, w4
+        // Monatlich: nur w4 (Ende Monat)
+        key = 'w4';
       }
       
       const prices = window.custPrices || custPrices || {};
