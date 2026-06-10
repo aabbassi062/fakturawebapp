@@ -7374,8 +7374,9 @@ function saveMonthEntry() {
 // NEUE FUNKTION: Speichert zu Supabase mit echtem Error Handling
 async function saveMonthToSupabase(entry, method) {
   try {
-    // NUR Felder senden die in Supabase Tabelle existieren! (NICHT monatLabel)
+    // NUR Felder senden die in Supabase Tabelle existieren!
     const dataForSupabase = {
+      id: entry.id,  // WICHTIG: ID muss mit!
       year: entry.year,
       month: entry.month,
       arbeitstage: entry.arbeitstage,
@@ -7392,10 +7393,11 @@ async function saveMonthToSupabase(entry, method) {
     };
     
     console.log(`💾 Speichere zu Supabase (${method}):`, entry.monatLabel);
+    console.log(`   ID: ${entry.id}`);
     
     let url = `${SUPABASE_URL}/rest/v1/months`;
     if (method === 'PATCH') {
-      url += `?year=eq.${entry.year}&month=eq.${entry.month}`;
+      url += `?id=eq.${entry.id}`;
     }
     
     const response = await fetch(url, {
