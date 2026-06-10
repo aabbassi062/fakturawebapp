@@ -7375,11 +7375,12 @@ function saveMonthEntry() {
 async function saveMonthToSupabase(entry, method) {
   try {
     // NUR Felder senden die WIRKLICH in Supabase existieren!
-    // (monatLabel existiert NICHT in der Tabelle - das ist nur Frontend!)
+    // WICHTIG: Spalten sind KLEINBUCHSTABEN! (monatlabel nicht monatLabel)
     const dataForSupabase = {
       id: entry.id,
       year: entry.year,
       month: entry.month,
+      monatlabel: entry.monatLabel,  // ← KLEINBUCHSTABEN! "April 2026"
       arbeitstage: entry.arbeitstage,
       total: entry.total,
       netto: entry.netto,
@@ -7394,7 +7395,7 @@ async function saveMonthToSupabase(entry, method) {
     };
     
     console.log(`💾 Speichere zu Supabase (${method}):`, entry.monatLabel);
-    console.log(`   ID: ${entry.id}, Year: ${entry.year}, Month: ${entry.month}`);
+    console.log(`   ID: ${entry.id}, monatlabel: ${dataForSupabase.monatlabel}`);
     
     let url = `${SUPABASE_URL}/rest/v1/months`;
     if (method === 'PATCH') {
