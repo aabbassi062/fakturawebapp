@@ -6908,7 +6908,7 @@ function renderDashboardWithCharts(year) {
       <div class="kpi-sub">Mittelwert über ${rows.length} Monate</div>
     </div>
     <div class="kpi-card teal">
-      <div class="kpi-label">Bester Monat</div>
+      <div class="kpi-label">Bestes Monat</div>
       <div class="kpi-value white">${MONTHS[bestMonth.month]}</div>
       <div class="kpi-sub">CHF ${fC(bestMonth.total)}</div>
     </div>
@@ -7354,6 +7354,53 @@ function saveMonthEntry() {
   }
   
   saveData(data);
+  
+  // WICHTIG: Speichere auch in Supabase!
+  try {
+    const dataForSupabase = {
+      year: entry.year,
+      month: entry.month,
+      monatLabel: entry.monatLabel,
+      arbeitstage: entry.arbeitstage,
+      total: entry.total,
+      netto: entry.netto,
+      pakete: entry.pakete,
+      treibstoff: entry.treibstoff,
+      monatsende: entry.monatsende,
+      zweimonat: entry.zweimonat,
+      woche1: entry.woche1,
+      woche2: entry.woche2,
+      handrechnungen: entry.handrechnungen,
+      notiz: entry.notiz
+    };
+    
+    if (editId) {
+      // UPDATE
+      fetch(`${SUPABASE_URL}/rest/v1/months?year=eq.${entry.year}&month=eq.${entry.month}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dataForSupabase)
+      }).catch(err => console.error('Supabase update error:', err));
+    } else {
+      // INSERT
+      fetch(`${SUPABASE_URL}/rest/v1/months`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dataForSupabase)
+      }).catch(err => console.error('Supabase insert error:', err));
+    }
+  } catch (err) {
+    console.error('Error saving to Supabase:', err);
+  }
+  
   resetMonthForm();
   renderErfassenTable();
   renderAllYears();
