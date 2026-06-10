@@ -2292,16 +2292,28 @@ async function importExcelPrices(event) {
       alert(`⚠️ ${errors.length} Fehler beim Speichern:\n\n${errors.slice(0, 10).join('\n')}`);
     }
     
-    // Refresh
-    console.log('🔄 Refreshing data...');
-    await loadDataFromSupabase();
+    // WICHTIG: Refresh ALLE Daten!
+    console.log('🔄 Lade ALLE Daten neu...');
+    const refreshSuccess = await loadDataFromSupabase();
     
-    custPrices = window.custPrices || {};
-    console.log('📊 custPrices aktualisiert:', Object.keys(custPrices).length, 'Kunden');
-    
-    if (typeof renderTop10Charts === 'function') renderTop10Charts();
-    if (typeof filterKunden === 'function') filterKunden();
-    if (typeof renderKundenPrices === 'function') renderKundenPrices();
+    if (refreshSuccess) {
+      console.log('✅ Daten erfolgreich aktualisiert');
+      
+      // Update local variables
+      custPrices = window.custPrices || {};
+      console.log('📊 custPrices aktualisiert:', Object.keys(custPrices).length, 'Kunden');
+      
+      // Re-render everything
+      console.log('🎨 Aktualisiere Anzeige...');
+      if (typeof renderTop10Charts === 'function') renderTop10Charts();
+      if (typeof filterKunden === 'function') filterKunden();
+      if (typeof renderKundenPrices === 'function') renderKundenPrices();
+      if (typeof renderAllYears === 'function') renderAllYears();
+      
+      showToast('✅ Daten aktualisiert - Bitte neu laden (F5)', 'success');
+    } else {
+      showToast('⚠️ Daten konnten nicht aktualisiert werden', 'warning');
+    }
     
   } catch (e) {
     console.error('Import error:', e);
