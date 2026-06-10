@@ -2089,6 +2089,8 @@ async function importExcelPrices(event) {
     const lines = text.split('\n');
     
     const pricesByCustomer = new Map();
+    let skipped = 0;
+    let skippedReasons = [];
     
     console.log(`📊 Verarbeite ${lines.length} Zeilen...`);
     
@@ -2098,29 +2100,54 @@ async function importExcelPrices(event) {
       if (!line) continue;
       
       const cols = line.split(';');
-      if (cols.length < 6) continue;
+      if (cols.length < 6) {
+        skipped++;
+        skippedReasons.push(`Zeile ${i+1}: Zu wenig Spalten (${cols.length})`);
+        continue;
+      }
       
       const kundeNr = cols[1].trim();
       const datumStr = cols[4].trim();
       const betragStr = cols[5].trim();
       
-      if (!kundeNr || !datumStr || !betragStr) continue;
+      // Log why lines are skipped
+      if (!kundeNr || !datumStr || !betragStr) {
+        skipped++;
+        let reason = `Zeile ${i+1}: `;
+        if (!kundeNr) reason += 'Keine Kundennummer ';
+        if (!datumStr) reason += 'Kein Datum ';
+        if (!betragStr) reason += 'Kein Betrag ';
+        skippedReasons.push(reason);
+        continue;
+      }
       
       let year, month, day;
       try {
         year = parseInt(datumStr.substring(0, 4));
         month = parseInt(datumStr.substring(4, 6));
         day = parseInt(datumStr.substring(6, 8));
-        if (isNaN(year) || isNaN(month) || isNaN(day)) continue;
+        if (isNaN(year) || isNaN(month) || isNaN(day)) {
+          skipped++;
+          skippedReasons.push(`Zeile ${i+1}: Datum ungültig (${datumStr})`);
+          continue;
+        }
       } catch (e) {
+        skipped++;
+        skippedReasons.push(`Zeile ${i+1}: Datum Fehler (${datumStr})`);
         continue;
       }
       
       let betrag;
       try {
         betrag = parseFloat(betragStr.replace(',', '.'));
-        if (isNaN(betrag)) continue;
+        if (isNaN(betrag)) {
+          skipped++;
+          skippedReasons.push(`Zeile ${i+1}: Betrag nicht numeric (${betragStr})`);
+          continue;
+        }
       } catch (e) {
+        skipped++;
+        skippedReasons.push(`Zeile ${i+1}: Betrag Fehler (${betragStr})`);
         continue;
       }
       
@@ -2150,6 +2177,16 @@ async function importExcelPrices(event) {
     }
     
     console.log(`✅ ${pricesByCustomer.size} Einträge gefunden`);
+    console.log(`⚠️ ${skipped} Zeilen übersprungen`);
+    
+    if (skippedReasons.length > 0 && skippedReasons.length <= 20) {
+      console.log('Übersprungene Zeilen:');
+      skippedReasons.forEach(r => console.log(`  - ${r}`));
+    } else if (skippedReasons.length > 20) {
+      console.log(`Erste 20 übersprungene Zeilen:`);
+      skippedReasons.slice(0, 20).forEach(r => console.log(`  - ${r}`));
+      console.log(`... und ${skippedReasons.length - 20} weitere`);
+    }
     
     if (pricesByCustomer.size === 0) {
       showToast('⚠️ Keine Daten gefunden', 'warning');
