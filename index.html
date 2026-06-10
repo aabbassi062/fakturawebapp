@@ -7333,7 +7333,6 @@ function saveMonthEntry() {
   if (editId) {
     const idx = data.findIndex(d => d.id === editId);
     if (idx >= 0) data[idx] = entry;
-    // Track update
     if (typeof addChangelogEntry === 'function') {
       addChangelogEntry('monat', 'updated', {
         monatLabel: entry.monatLabel,
@@ -7343,7 +7342,6 @@ function saveMonthEntry() {
     }
   } else {
     data.push(entry);
-    // Track creation
     if (typeof addChangelogEntry === 'function') {
       addChangelogEntry('monat', 'created', {
         monatLabel: entry.monatLabel,
@@ -7355,7 +7353,26 @@ function saveMonthEntry() {
   
   saveData(data);
   
-  // WICHTIG: Speichere auch in Supabase!
+  // WICHTIG: Speichere zu Supabase mit ECHTEM Error Handling
+  saveMonthToSupabase(entry, editId ? 'PATCH' : 'POST')
+    .then(success => {
+      if (success) {
+        showToast(`✅ ${entry.monatLabel} erfolgreich gespeichert!`, 'success');
+        resetMonthForm();
+        renderErfassenTable();
+        renderAllYears();
+      } else {
+        showToast(`⚠️ Fehler beim Speichern in Datenbank`, 'error');
+      }
+    })
+    .catch(err => {
+      console.error('Fatal save error:', err);
+      showToast(`❌ Fehler: ${err.message}`, 'error');
+    });
+}
+
+// NEUE FUNKTION: Speichert zu Supabase mit echtem Error Handling
+async function saveMonthToSupabase(entry, method) {
   try {
     const dataForSupabase = {
       year: entry.year,
@@ -7374,37 +7391,37 @@ function saveMonthEntry() {
       notiz: entry.notiz
     };
     
-    if (editId) {
-      // UPDATE
-      fetch(`${SUPABASE_URL}/rest/v1/months?year=eq.${entry.year}&month=eq.${entry.month}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(dataForSupabase)
-      }).catch(err => console.error('Supabase update error:', err));
-    } else {
-      // INSERT
-      fetch(`${SUPABASE_URL}/rest/v1/months`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(dataForSupabase)
-      }).catch(err => console.error('Supabase insert error:', err));
+    console.log(`💾 Speichere zu Supabase (${method}):`, entry.monatLabel);
+    
+    let url = `${SUPABASE_URL}/rest/v1/months`;
+    if (method === 'PATCH') {
+      url += `?year=eq.${entry.year}&month=eq.${entry.month}`;
     }
+    
+    const response = await fetch(url, {
+      method: method,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(dataForSupabase)
+    });
+    
+    const responseText = await response.text();
+    
+    if (!response.ok) {
+      console.error(`❌ Supabase ${method} error:`, response.status, responseText);
+      throw new Error(`HTTP ${response.status}: ${responseText}`);
+    }
+    
+    console.log(`✅ Supabase ${method} erfolgreich:`, entry.monatLabel);
+    return true;
+    
   } catch (err) {
-    console.error('Error saving to Supabase:', err);
+    console.error('Supabase save error:', err);
+    throw err;
   }
-  
-  resetMonthForm();
-  renderErfassenTable();
-  renderAllYears();
-  showToast('💾 Erfolgreich gespeichert', 'success');
 }
 
 function resetMonthForm() {
