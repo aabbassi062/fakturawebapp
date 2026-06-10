@@ -7374,10 +7374,10 @@ function saveMonthEntry() {
 // NEUE FUNKTION: Speichert zu Supabase mit echtem Error Handling
 async function saveMonthToSupabase(entry, method) {
   try {
+    // NUR Felder senden die in Supabase Tabelle existieren! (NICHT monatLabel)
     const dataForSupabase = {
       year: entry.year,
       month: entry.month,
-      monatLabel: entry.monatLabel,
       arbeitstage: entry.arbeitstage,
       total: entry.total,
       netto: entry.netto,
