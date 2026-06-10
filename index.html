@@ -2412,8 +2412,17 @@ async function loadDataFromSupabase() {
       'select': '*'
     });
     
+    console.log('📊 Raw prices from API:', prices?.length, 'Einträge');
+    if (prices && prices.length > 0) {
+      console.log('   Beispiel Eintrag:', prices[0]);
+      // Suche nach Kunde 132540
+      const kunde132540 = prices.find(p => p.customer_nr === '132540');
+      console.log('   Kunde 132540 in API:', kunde132540);
+    }
+    
     // Convert to old format
     sharedCustomerPrices = {};
+    let converted = 0;
     (prices || []).forEach(p => {
       if (!sharedCustomerPrices[p.customer_nr]) {
         sharedCustomerPrices[p.customer_nr] = {};
@@ -2428,9 +2437,11 @@ async function loadDataFromSupabase() {
         w4: p.w4,
         w5: p.w5
       };
+      converted++;
     });
     window.custPrices = sharedCustomerPrices;
-    console.log('✅ Customer prices loaded');
+    console.log(`✅ Customer prices loaded: ${converted} Einträge konvertiert`);
+    console.log('   Kunde 132540 in custPrices:', window.custPrices['132540']);
     
     return true;
   } catch (error) {
